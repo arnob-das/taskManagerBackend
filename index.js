@@ -22,11 +22,15 @@ app.use(express.json());
 // Explicitly handle preflight OPTIONS for all routes
 app.options('*', cors());
 
-// Initialize Firebase Admin SDK if not already initialized
+// Initialize Firebase Admin SDK safely
 if (getApps().length === 0) {
-  initializeApp({
-    projectId: process.env.FIREBASE_PROJECT_ID || 'task-manager-arnob',
-  });
+  try {
+    initializeApp({
+      projectId: process.env.FIREBASE_PROJECT_ID || 'task-manager-arnob',
+    });
+  } catch (err) {
+    console.error('Firebase Admin initialization error:', err.message);
+  }
 }
 
 // Lazy MongoDB Client Initialization
@@ -38,7 +42,7 @@ function getTasksCollection() {
     const uri = process.env.DATABASE_URI;
     if (!uri) {
       console.error('DATABASE_URI environment variable is missing!');
-      throw new Error('DATABASE_URI environment variable is missing.');
+      throw new Error('DATABASE_URI environment variable is missing in Vercel project settings.');
     }
     if (!client) {
       client = new MongoClient(uri, {
