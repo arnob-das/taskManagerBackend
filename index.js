@@ -2,19 +2,29 @@ require('dotenv').config();
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const express = require('express');
 const cors = require('cors');
-const { initializeApp } = require('firebase-admin/app');
+const { initializeApp, getApps } = require('firebase-admin/app');
 const { getAuth } = require('firebase-admin/auth');
 
 const app = express();
 const port = process.env.PORT || 5000;
 
-app.use(express.json());
-app.use(cors());
+// Enable CORS for all origins and preflight requests
+app.use(
+  cors({
+    origin: '*',
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+  })
+);
 
-// Initialize Firebase Admin SDK
-initializeApp({
-  projectId: process.env.FIREBASE_PROJECT_ID || 'task-manager-arnob',
-});
+app.use(express.json());
+
+// Initialize Firebase Admin SDK if not already initialized
+if (getApps().length === 0) {
+  initializeApp({
+    projectId: process.env.FIREBASE_PROJECT_ID || 'task-manager-arnob',
+  });
+}
 
 // Middleware to verify Firebase Authentication Token
 const verifyToken = async (req, res, next) => {
@@ -47,100 +57,95 @@ const client = new MongoClient(uri, {
   },
 });
 
-async function run() {
-  try {
-    await client.connect();
-    const db = await client.db('taskmaster');
-    const tasksCollection = db.collection('tasks');
+const db = client.db('taskmaster');
+const tasksCollection = db.collection('tasks');
 
-    console.log('Successfully connected to MongoDB!');
-
-    app.get('/', (req, res) => {
-      res.send('Task Master Server is running and secured with Firebase Auth!');
-    });
-
-    // GET /tasks - Protected
-    app.get('/tasks', verifyToken, async (req, res) => {
-      try {
-        const tasks = await tasksCollection.find({}).toArray();
-        res.json(tasks);
-      } catch (err) {
-        console.error('Error fetching tasks:', err);
-        res.status(500).json({ error: 'Internal Server Error' });
-      }
-    });
-
-    // POST /tasks - Protected
-    app.post('/tasks', verifyToken, async (req, res) => {
-      const newTask = {
-        ...req.body,
-        createdByEmail: req.user.email || '',
-        createdAt: new Date().toISOString(),
-      };
-
-      try {
-        const result = await tasksCollection.insertOne(newTask);
-        res.status(201).json(result);
-      } catch (err) {
-        console.error('Error creating task:', err);
-        res.status(500).json({ error: 'Internal Server Error' });
-      }
-    });
-
-    // DELETE /tasks/:id - Protected
-    app.delete('/tasks/:id', verifyToken, async (req, res) => {
-      const taskId = req.params.id;
-
-      if (!ObjectId.isValid(taskId)) {
-        return res.status(400).json({ error: 'Invalid task ID format' });
-      }
-
-      try {
-        const result = await tasksCollection.deleteOne({
-          _id: new ObjectId(taskId),
-        });
-        if (result.deletedCount === 0) {
-          res.status(404).json({ error: 'Task not found' });
-        } else {
-          res.json({ message: 'Task deleted successfully' });
-        }
-      } catch (err) {
-        console.error('Error deleting task:', err);
-        res.status(500).json({ error: 'Internal Server Error' });
-      }
-    });
-
-    // PATCH /tasks/:id - Protected
-    app.patch('/tasks/:id', verifyToken, async (req, res) => {
-      const taskId = req.params.id;
-
-      if (!ObjectId.isValid(taskId)) {
-        return res.status(400).json({ error: 'Invalid task ID format' });
-      }
-
-      const updatedTaskData = req.body;
-
-      try {
-        const result = await tasksCollection.updateOne(
-          { _id: new ObjectId(taskId) },
-          { $set: updatedTaskData }
-        );
-
-        if (result.matchedCount === 0) {
-          res.status(404).json({ error: 'Task not found' });
-        } else {
-          res.json({ message: 'Task updated successfully' });
-        }
-      } catch (err) {
-        console.error('Error updating task:', err);
-        res.status(500).json({ error: 'Internal Server Error' });
-      }
-    });
-  } finally {
-  }
-}
-run().catch(console.dir);
-
-app.listen(port, () => {
-  console.log(`Task Master server listening on port ${port}`);
+app.get('/', (req, res) => {
+  res.send('Task Master Server is running and secured with Firebase Auth!');
 });
+
+// GET /tasks - Protected
+app.get('/tasks', verifyToken, async (req, res) => {
+  try {
+    const tasks = await tasksCollection.find({}).toArray();
+    res.json(tasks);
+  } catch (err) {
+    console.error('Error fetching tasks:', err);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
+// POST /tasks - Protected
+app.post('/tasks', verifyToken, async (req, res) => {
+  const newTask = {
+    ...req.body,
+    createdByEmail: req.user.email || '',
+    createdAt: new Date().toISOString(),
+  };
+
+  try {
+    const result = await tasksCollection.insertOne(newTask);
+    res.status(201).json(result);
+  } catch (err) {
+    console.error('Error creating task:', err);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
+// DELETE /tasks/:id - Protected
+app.delete('/tasks/:id', verifyToken, async (req, res) => {
+  const taskId = req.params.id;
+
+  if (!ObjectId.isValid(taskId)) {
+    return res.status(400).json({ error: 'Invalid task ID format' });
+  }
+
+  try {
+    const result = await tasksCollection.deleteOne({
+      _id: new ObjectId(taskId),
+    });
+    if (result.deletedCount === 0) {
+      res.status(404).json({ error: 'Task not found' });
+    } else {
+      res.json({ message: 'Task deleted successfully' });
+    }
+  } catch (err) {
+    console.error('Error deleting task:', err);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
+// PATCH /tasks/:id - Protected
+app.patch('/tasks/:id', verifyToken, async (req, res) => {
+  const taskId = req.params.id;
+
+  if (!ObjectId.isValid(taskId)) {
+    return res.status(400).json({ error: 'Invalid task ID format' });
+  }
+
+  const updatedTaskData = req.body;
+
+  try {
+    const result = await tasksCollection.updateOne(
+      { _id: new ObjectId(taskId) },
+      { $set: updatedTaskData }
+    );
+
+    if (result.matchedCount === 0) {
+      res.status(404).json({ error: 'Task not found' });
+    } else {
+      res.json({ message: 'Task updated successfully' });
+    }
+  } catch (err) {
+    console.error('Error updating task:', err);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
+if (require.main === module) {
+  app.listen(port, () => {
+    console.log(`Task Master server listening on port ${port}`);
+  });
+}
+
+module.exports = app;
