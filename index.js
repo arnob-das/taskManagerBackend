@@ -19,11 +19,40 @@ app.use(
 
 app.use(express.json());
 
+// Explicitly handle preflight OPTIONS for all routes
+app.options('*', cors());
+
 // Initialize Firebase Admin SDK if not already initialized
 if (getApps().length === 0) {
   initializeApp({
     projectId: process.env.FIREBASE_PROJECT_ID || 'task-manager-arnob',
   });
+}
+
+// Lazy MongoDB Client Initialization
+let client;
+let tasksCollection;
+
+function getTasksCollection() {
+  if (!tasksCollection) {
+    const uri = process.env.DATABASE_URI;
+    if (!uri) {
+      console.error('DATABASE_URI environment variable is missing!');
+      throw new Error('DATABASE_URI environment variable is missing.');
+    }
+    if (!client) {
+      client = new MongoClient(uri, {
+        serverApi: {
+          version: ServerApiVersion.v1,
+          strict: true,
+          deprecationErrors: true,
+        },
+      });
+    }
+    const db = client.db('taskmaster');
+    tasksCollection = db.collection('tasks');
+  }
+  return tasksCollection;
 }
 
 // Middleware to verify Firebase Authentication Token
@@ -48,18 +77,6 @@ const verifyToken = async (req, res, next) => {
   }
 };
 
-const uri = process.env.DATABASE_URI;
-const client = new MongoClient(uri, {
-  serverApi: {
-    version: ServerApiVersion.v1,
-    strict: true,
-    deprecationErrors: true,
-  },
-});
-
-const db = client.db('taskmaster');
-const tasksCollection = db.collection('tasks');
-
 app.get('/', (req, res) => {
   res.send('Task Master Server is running and secured with Firebase Auth!');
 });
@@ -67,11 +84,12 @@ app.get('/', (req, res) => {
 // GET /tasks - Protected
 app.get('/tasks', verifyToken, async (req, res) => {
   try {
-    const tasks = await tasksCollection.find({}).toArray();
+    const collection = getTasksCollection();
+    const tasks = await collection.find({}).toArray();
     res.json(tasks);
   } catch (err) {
     console.error('Error fetching tasks:', err);
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(500).json({ error: err.message || 'Internal Server Error' });
   }
 });
 
@@ -84,11 +102,12 @@ app.post('/tasks', verifyToken, async (req, res) => {
   };
 
   try {
-    const result = await tasksCollection.insertOne(newTask);
+    const collection = getTasksCollection();
+    const result = await collection.insertOne(newTask);
     res.status(201).json(result);
   } catch (err) {
     console.error('Error creating task:', err);
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(500).json({ error: err.message || 'Internal Server Error' });
   }
 });
 
@@ -101,7 +120,8 @@ app.delete('/tasks/:id', verifyToken, async (req, res) => {
   }
 
   try {
-    const result = await tasksCollection.deleteOne({
+    const collection = getTasksCollection();
+    const result = await collection.deleteOne({
       _id: new ObjectId(taskId),
     });
     if (result.deletedCount === 0) {
@@ -111,7 +131,7 @@ app.delete('/tasks/:id', verifyToken, async (req, res) => {
     }
   } catch (err) {
     console.error('Error deleting task:', err);
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(500).json({ error: err.message || 'Internal Server Error' });
   }
 });
 
@@ -126,7 +146,8 @@ app.patch('/tasks/:id', verifyToken, async (req, res) => {
   const updatedTaskData = req.body;
 
   try {
-    const result = await tasksCollection.updateOne(
+    const collection = getTasksCollection();
+    const result = await collection.updateOne(
       { _id: new ObjectId(taskId) },
       { $set: updatedTaskData }
     );
@@ -138,7 +159,7 @@ app.patch('/tasks/:id', verifyToken, async (req, res) => {
     }
   } catch (err) {
     console.error('Error updating task:', err);
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(500).json({ error: err.message || 'Internal Server Error' });
   }
 });
 
